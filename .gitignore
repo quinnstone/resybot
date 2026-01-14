@@ -1,0 +1,26 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Credentials - never commit these!
+.env
+config/accounts/*.env
+resy_accounts.md
+
+# Logs
+logs/*.log
+
+# Database
+data/jobs.db
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# EC2
+config/ec2_state.json
+tests/rate_limit_init.sh
