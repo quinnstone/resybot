@@ -162,13 +162,13 @@ def cmd_schedule(url: str, date: str, time_window: str, party_size: int):
 
     print(f"\n  Job created with ID: {job_id}")
 
-    # Schedule cron job
-    print(f"  Scheduling cron job...")
+    # Schedule launchd job
+    print(f"  Scheduling launchd job...")
     try:
         scheduler.schedule_job(job)
         print(f"  Cron job scheduled!")
     except SchedulerError as e:
-        print(f"  Warning: Could not create cron job: {e}")
+        print(f"  Warning: Could not create launchd job: {e}")
         print(f"  You can run manually: python resy.py run {job_id}")
 
     print_header("SNIPE SCHEDULED")
@@ -239,7 +239,7 @@ def cmd_cancel(job_id: int):
         print("  Aborted.")
         sys.exit(0)
 
-    # Remove cron job
+    # Remove launchd job
     scheduler = Scheduler()
     scheduler.unschedule_job(job_id)
 
@@ -251,7 +251,7 @@ def cmd_cancel(job_id: int):
 
 
 def cmd_run(job_id: int):
-    """Run a snipe job (called by cron or manually)"""
+    """Run a snipe job (called by launchd or manually)"""
     import subprocess
 
     store = JobStore()
@@ -337,7 +337,7 @@ Commands:
   schedule    Schedule a new reservation snipe
   list        List all scheduled snipes
   cancel      Cancel a scheduled snipe
-  run         Run a snipe job (used by cron)
+  run         Run a snipe job (used by launchd)
   test        Test run a snipe immediately (for debugging)
   venues      List known venues
 

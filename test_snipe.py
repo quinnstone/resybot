@@ -4,7 +4,7 @@ Interactive Snipe Tool
 
 Run this to either:
 - Test a snipe immediately (if slots are already released)
-- Schedule a cron job for a future release
+- Schedule a launchd job for a future release
 """
 import sys
 import subprocess
@@ -29,7 +29,7 @@ def main():
     print("Are reservation slots for your target date already available?")
     print()
     print("  1. YES - Slots are available now, run snipe immediately")
-    print("  2. NO  - Slots release in the future, schedule a cron job")
+    print("  2. NO  - Slots release in the future, schedule a launchd job")
     print()
     choice = input("Choice [1]: ").strip() or "1"
 
@@ -268,13 +268,13 @@ def run_scheduled_flow():
     print()
     print(f"  Job created with ID: {job_id}")
 
-    # Schedule cron job
+    # Schedule launchd job
     scheduler = Scheduler()
     try:
         scheduler.schedule_job(job)
-        print(f"  Cron job scheduled!")
+        print(f"  launchd job scheduled!")
     except Exception as e:
-        print(f"  Warning: Could not create cron job: {e}")
+        print(f"  Warning: Could not create launchd job: {e}")
         print(f"  You can run manually: python resy.py run {job_id}")
 
     print()
