@@ -1,15 +1,15 @@
 """
 Scheduler
 
-Manages cron jobs for scheduled snipe operations.
+Manages launchd jobs for scheduled snipe operations on macOS.
 """
 import os
+import plistlib
 import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 from src.job_store import Job, JobStatus, JobStore
 
@@ -20,15 +20,17 @@ class SchedulerError(Exception):
 
 
 class Scheduler:
-    """Manages cron jobs for snipe scheduling"""
+    """Manages launchd jobs for snipe scheduling"""
 
-    # Marker to identify our cron entries
-    CRON_MARKER = "# RESY_SNIPE_JOB"
+    # Prefix for our launchd job labels
+    LAUNCHD_PREFIX = "com.resy.snipe.job"
 
     def __init__(self):
         self.project_root = Path(__file__).parent.parent.absolute()
         self.python_path = self._find_python()
         self.job_store = JobStore()
+        self.launch_agents_dir = Path.home() / "Library" / "LaunchAgents"
+        self.launch_agents_dir.mkdir(parents=True, exist_ok=True)
 
     def _find_python(self) -> str:
         """Find the Python executable, preferring venv if available"""
@@ -39,6 +41,14 @@ class Scheduler:
         if venv_python3.exists():
             return str(venv_python3)
         return sys.executable
+
+    def _get_plist_path(self, job_id: int) -> Path:
+        """Get the plist file path for a job"""
+        return self.launch_agents_dir / f"{self.LAUNCHD_PREFIX}.{job_id}.plist"
+
+    def _get_label(self, job_id: int) -> str:
+        """Get the launchd label for a job"""
+        return f"{self.LAUNCHD_PREFIX}.{job_id}"
 
     def calculate_snipe_datetime(
         self,
@@ -81,7 +91,7 @@ class Scheduler:
 
     def schedule_job(self, job: Job) -> bool:
         """
-        Create a cron job for the given snipe job.
+        Create a launchd job for the given snipe job.
 
         Args:
             job: The job to schedule
@@ -98,139 +108,136 @@ class Scheduler:
             "%Y-%m-%d %H:%M:%S"
         )
 
-        # Build cron time fields (minute, hour, day, month, weekday)
-        minute = snipe_dt.minute
-        hour = snipe_dt.hour
-        day = snipe_dt.day
-        month = snipe_dt.month
-
-        # Build the command
+        # Build the command arguments
         resy_cli = self.project_root / "resy.py"
         log_file = self.project_root / "logs" / f"job_{job.id}.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
-        command = (
-            f"cd {self.project_root} && "
-            f"{self.python_path} {resy_cli} run {job.id} "
-            f">> {log_file} 2>&1"
-        )
+        label = self._get_label(job.id)
+        plist_path = self._get_plist_path(job.id)
 
-        # Build cron entry
-        cron_entry = f"{minute} {hour} {day} {month} * {command} {self.CRON_MARKER}_{job.id}"
+        # Create the launchd plist
+        plist_content = {
+            'Label': label,
+            'ProgramArguments': [
+                self.python_path,
+                str(resy_cli),
+                'run',
+                str(job.id)
+            ],
+            'WorkingDirectory': str(self.project_root),
+            'StartCalendarInterval': {
+                'Month': snipe_dt.month,
+                'Day': snipe_dt.day,
+                'Hour': snipe_dt.hour,
+                'Minute': snipe_dt.minute,
+            },
+            'StandardOutPath': str(log_file),
+            'StandardErrorPath': str(log_file),
+            'EnvironmentVariables': {
+                'PATH': '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+                'HOME': str(Path.home()),
+            },
+        }
 
-        # Add to crontab
         try:
-            self._add_cron_entry(cron_entry)
-            self.job_store.update_status(job.id, JobStatus.SCHEDULED)
-            return True
-        except Exception as e:
-            raise SchedulerError(f"Failed to create cron job: {e}")
+            # Unload existing job if present
+            self._unload_job(label)
 
-    def unschedule_job(self, job_id: int) -> bool:
-        """
-        Remove the cron job for a given job ID.
+            # Write plist file
+            with open(plist_path, 'wb') as f:
+                plistlib.dump(plist_content, f)
 
-        Returns:
-            True if cron entry was found and removed
-        """
-        marker = f"{self.CRON_MARKER}_{job_id}"
-        return self._remove_cron_entry(marker)
-
-    def _get_current_crontab(self) -> str:
-        """Get current user's crontab"""
-        try:
+            # Load the job
             result = subprocess.run(
-                ['crontab', '-l'],
+                ['launchctl', 'load', str(plist_path)],
                 capture_output=True,
                 text=True
             )
-            if result.returncode == 0:
-                return result.stdout
-            # No crontab for user
-            return ""
-        except FileNotFoundError:
-            raise SchedulerError("crontab command not found")
 
-    def _set_crontab(self, content: str):
-        """Set the user's crontab"""
-        try:
-            process = subprocess.Popen(
-                ['crontab', '-'],
-                stdin=subprocess.PIPE,
-                text=True
-            )
-            process.communicate(input=content)
-            if process.returncode != 0:
-                raise SchedulerError("Failed to set crontab")
-        except FileNotFoundError:
-            raise SchedulerError("crontab command not found")
+            if result.returncode != 0:
+                raise SchedulerError(f"Failed to load launchd job: {result.stderr}")
 
-    def _add_cron_entry(self, entry: str):
-        """Add a cron entry to the user's crontab"""
-        current = self._get_current_crontab()
-        lines = current.strip().split('\n') if current.strip() else []
+            self.job_store.update_status(job.id, JobStatus.SCHEDULED)
+            return True
 
-        # Check if entry already exists (by marker)
-        marker = entry.split(self.CRON_MARKER)[-1] if self.CRON_MARKER in entry else None
-        if marker:
-            full_marker = f"{self.CRON_MARKER}{marker}"
-            lines = [l for l in lines if full_marker not in l]
+        except Exception as e:
+            raise SchedulerError(f"Failed to create launchd job: {e}")
 
-        lines.append(entry)
-        self._set_crontab('\n'.join(lines) + '\n')
+    def unschedule_job(self, job_id: int) -> bool:
+        """
+        Remove the launchd job for a given job ID.
 
-    def _remove_cron_entry(self, marker: str) -> bool:
-        """Remove cron entries containing the marker"""
-        current = self._get_current_crontab()
-        if not current.strip():
-            return False
+        Returns:
+            True if job was found and removed
+        """
+        label = self._get_label(job_id)
+        plist_path = self._get_plist_path(job_id)
 
-        lines = current.strip().split('\n')
-        new_lines = [l for l in lines if marker not in l]
+        unloaded = self._unload_job(label)
 
-        if len(new_lines) == len(lines):
-            return False  # Nothing removed
+        # Remove plist file
+        if plist_path.exists():
+            plist_path.unlink()
+            return True
 
-        if new_lines:
-            self._set_crontab('\n'.join(new_lines) + '\n')
-        else:
-            # Remove crontab entirely if empty
-            subprocess.run(['crontab', '-r'], capture_output=True)
+        return unloaded
 
-        return True
+    def _unload_job(self, label: str) -> bool:
+        """Unload a launchd job by label"""
+        result = subprocess.run(
+            ['launchctl', 'remove', label],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
 
-    def list_scheduled_cron_jobs(self) -> list[str]:
-        """List all our cron entries"""
-        current = self._get_current_crontab()
-        if not current.strip():
-            return []
+    def list_scheduled_launchd_jobs(self) -> list[dict]:
+        """List all our launchd jobs"""
+        jobs = []
 
-        return [
-            line for line in current.strip().split('\n')
-            if self.CRON_MARKER in line
-        ]
+        # Check for plist files
+        for plist_file in self.launch_agents_dir.glob(f"{self.LAUNCHD_PREFIX}.*.plist"):
+            try:
+                with open(plist_file, 'rb') as f:
+                    plist_data = plistlib.load(f)
+                    jobs.append({
+                        'label': plist_data.get('Label'),
+                        'path': str(plist_file),
+                        'schedule': plist_data.get('StartCalendarInterval', {})
+                    })
+            except Exception:
+                pass
+
+        return jobs
+
+    def is_job_loaded(self, job_id: int) -> bool:
+        """Check if a launchd job is currently loaded"""
+        label = self._get_label(job_id)
+        result = subprocess.run(
+            ['launchctl', 'list', label],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
 
     def sync_with_store(self):
         """
-        Sync cron jobs with job store.
-        Removes cron entries for jobs that no longer exist or are completed.
+        Sync launchd jobs with job store.
+        Removes launchd entries for jobs that no longer exist or are completed.
         """
-        # Get all our cron entries
-        cron_jobs = self.list_scheduled_cron_jobs()
+        for plist_file in self.launch_agents_dir.glob(f"{self.LAUNCHD_PREFIX}.*.plist"):
+            try:
+                # Extract job ID from filename
+                parts = plist_file.stem.split('.')
+                job_id = int(parts[-1])
 
-        for cron_line in cron_jobs:
-            # Extract job ID from marker
-            if self.CRON_MARKER in cron_line:
-                try:
-                    marker_part = cron_line.split(self.CRON_MARKER + "_")[-1]
-                    job_id = int(marker_part.split()[0])
-
-                    # Check if job still exists and is pending/scheduled
-                    job = self.job_store.get_job(job_id)
-                    if not job or job.status not in (JobStatus.PENDING, JobStatus.SCHEDULED):
-                        self.unschedule_job(job_id)
-                except (ValueError, IndexError):
-                    pass
+                # Check if job still exists and is pending/scheduled
+                job = self.job_store.get_job(job_id)
+                if not job or job.status not in (JobStatus.PENDING, JobStatus.SCHEDULED):
+                    self.unschedule_job(job_id)
+            except (ValueError, IndexError):
+                pass
 
 
 def format_snipe_datetime(snipe_date: str, snipe_time: str, timezone: str) -> str:
@@ -243,6 +250,28 @@ def format_snipe_datetime(snipe_date: str, snipe_time: str, timezone: str) -> st
         'America/Los_Angeles': 'PT'
     }.get(timezone, timezone)
     return dt.strftime(f"%b %d, %Y at %I:%M:%S %p {tz_abbrev}")
+
+
+# Keep backward compatibility for removing old cron jobs
+def remove_legacy_cron_jobs():
+    """Remove any old cron-based Resy jobs"""
+    try:
+        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
+        if result.returncode != 0:
+            return
+
+        lines = result.stdout.strip().split('\n')
+        new_lines = [l for l in lines if 'RESY_SNIPE_JOB' not in l]
+
+        if len(new_lines) < len(lines):
+            if new_lines:
+                process = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE, text=True)
+                process.communicate(input='\n'.join(new_lines) + '\n')
+            else:
+                subprocess.run(['crontab', '-r'], capture_output=True)
+            print("  Removed legacy cron jobs")
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
@@ -260,7 +289,7 @@ if __name__ == "__main__":
     print(f"Snipe:  {snipe_date} at {snipe_time}")
     print(f"Display: {format_snipe_datetime(snipe_date, snipe_time, 'America/New_York')}")
 
-    # List current cron jobs
-    print("\nCurrent Resy cron jobs:")
-    for job in scheduler.list_scheduled_cron_jobs():
-        print(f"  {job[:80]}...")
+    # List current launchd jobs
+    print("\nCurrent Resy launchd jobs:")
+    for job in scheduler.list_scheduled_launchd_jobs():
+        print(f"  {job['label']}: {job['schedule']}")

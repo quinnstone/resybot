@@ -1,12 +1,12 @@
 # Resy Sniper
 
-Automated reservation sniper for Resy restaurants. Input a restaurant URL and desired time window, and the tool will schedule a cron job to snipe reservations the moment they're released.
+Automated reservation sniper for Resy restaurants. Input a restaurant URL and desired time window, and the tool will schedule a launchd job to snipe reservations the moment they're released.
 
 ## Features
 
 - **URL-based scheduling** - Just paste a Resy restaurant URL
 - **Automatic venue detection** - Looks up venue IDs via Resy's API
-- **Cron job automation** - Schedules snipes to run at exact release times
+- **launchd automation** - Uses macOS native scheduler (more reliable than cron)
 - **15-minute time increments** - Searches time windows in 15-min slots
 - **Priority-based booking** - Tries earliest times first within your window
 - **Email notifications** - Get notified on success or failure
@@ -143,7 +143,7 @@ base/
 - The tool will search Resy's API automatically
 - If not found, you'll be prompted to enter the venue ID manually
 
-**Cron job not running**
+**Scheduled job not running**
 - Your computer must be ON and awake at the scheduled time
 - Check logs in `logs/job_<id>.log`
-- Verify cron is enabled: `crontab -l`
+- Verify launchd job is loaded: `launchctl list | grep resy`
