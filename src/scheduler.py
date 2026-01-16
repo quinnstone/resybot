@@ -33,14 +33,10 @@ class Scheduler:
         self.launch_agents_dir.mkdir(parents=True, exist_ok=True)
 
     def _find_python(self) -> str:
-        """Find the Python executable, preferring venv if available"""
-        venv_python = self.project_root / "venv" / "bin" / "python"
-        if venv_python.exists():
-            return str(venv_python)
-        venv_python3 = self.project_root / "venv" / "bin" / "python3"
-        if venv_python3.exists():
-            return str(venv_python3)
-        return sys.executable
+        """Find the Python executable - use system Python for launchd compatibility"""
+        # Use system Python to avoid venv permission issues with launchd
+        # Dependencies must be installed with: pip3 install --user requests python-dotenv
+        return "/usr/bin/python3"
 
     def _get_plist_path(self, job_id: int) -> Path:
         """Get the plist file path for a job"""
