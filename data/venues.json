@@ -61,5 +61,23 @@
     "days_advance": 21,
     "timezone": "America/New_York",
     "slot_interval": 30
+  },
+  "torrisi": {
+    "id": 64593,
+    "name": "Torrisi",
+    "city": "New York, NY",
+    "drop_time": "10:00",
+    "days_advance": 30,
+    "timezone": "America/New_York",
+    "slot_interval": 30
+  },
+  "semma": {
+    "id": 1263,
+    "name": "Semma",
+    "city": "New York, NY",
+    "drop_time": "09:00",
+    "days_advance": 15,
+    "timezone": "America/New_York",
+    "slot_interval": 15
   }
 }
