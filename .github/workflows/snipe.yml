@@ -11,6 +11,10 @@ on:
         description: 'Reservation date (YYYY-MM-DD)'
         required: true
         type: string
+      drop_date:
+        description: 'Date reservations drop (YYYY-MM-DD). Leave blank to auto-calculate.'
+        required: false
+        type: string
       time_window:
         description: 'Desired time window (HH:MM-HH:MM, e.g. 19:00-21:00)'
         required: true
@@ -45,11 +49,12 @@ jobs:
         env:
           INPUT_URL: ${{ inputs.venue_url }}
           INPUT_DATE: ${{ inputs.target_date }}
+          INPUT_DROP_DATE: ${{ inputs.drop_date }}
           INPUT_TIME: ${{ inputs.time_window }}
           INPUT_PARTY_SIZE: ${{ inputs.party_size }}
         run: |
-          python run_snipe.py \
-            --url "$INPUT_URL" \
-            --date "$INPUT_DATE" \
-            --time "$INPUT_TIME" \
-            --party-size "$INPUT_PARTY_SIZE"
+          ARGS="--url $INPUT_URL --date $INPUT_DATE --time $INPUT_TIME --party-size $INPUT_PARTY_SIZE"
+          if [ -n "$INPUT_DROP_DATE" ]; then
+            ARGS="$ARGS --drop-date $INPUT_DROP_DATE"
+          fi
+          python run_snipe.py $ARGS

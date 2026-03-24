@@ -27,6 +27,8 @@ def main():
     parser.add_argument('--date', required=True, help='Reservation date (YYYY-MM-DD)')
     parser.add_argument('--time', required=True, help='Time window (HH:MM-HH:MM)')
     parser.add_argument('--party-size', type=int, default=2)
+    parser.add_argument('--drop-date', default=None,
+                        help='Override drop date (YYYY-MM-DD). Auto-calculated if omitted.')
     parser.add_argument('--timeout', type=int, default=300)
     args = parser.parse_args()
 
@@ -53,9 +55,12 @@ def main():
     # Generate priority times
     priority_times = generate_priority_times(time_start, time_end, venue.slot_interval)
 
-    # Calculate drop date (target_date - days_advance)
-    target_dt = datetime.strptime(args.date, "%Y-%m-%d")
-    drop_date = (target_dt - timedelta(days=venue.days_advance)).strftime("%Y-%m-%d")
+    # Calculate drop date (target_date - days_advance), or use override
+    if args.drop_date:
+        drop_date = args.drop_date
+    else:
+        target_dt = datetime.strptime(args.date, "%Y-%m-%d")
+        drop_date = (target_dt - timedelta(days=venue.days_advance)).strftime("%Y-%m-%d")
 
     print(f"Venue:      {venue.name} (ID: {venue.id})")
     print(f"Date:       {args.date}")
