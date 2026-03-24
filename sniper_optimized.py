@@ -122,17 +122,18 @@ def find_slot(api, venue_id, date, priority_times, party_size):
         for target_time in priority_times:
             for slot in slots:
                 slot_time = slot.get("date", {}).get("start", "")
-                # Match "T19:30" to avoid "9:30" matching "19:30"
-                if f"T{target_time}" in slot_time:
+                # Match " 19:30" or "T19:30" — API uses both formats
+                if f" {target_time}" in slot_time or f"T{target_time}" in slot_time:
                     return slot, slot["config"]["token"], target_time, len(slots), None
 
         # Return available times for logging if no priority match
         avail_times = []
         for s in slots[:8]:
             start = s.get("date", {}).get("start", "")
-            # Extract HH:MM from ISO "2026-02-27T19:30:00"
-            if "T" in start:
-                avail_times.append(start.split("T")[1][:5])
+            # Extract HH:MM from "2026-04-03 19:30:00" or "2026-04-03T19:30:00"
+            time_part = start.split("T")[-1] if "T" in start else start.split(" ")[-1] if " " in start else ""
+            if time_part:
+                avail_times.append(time_part[:5])
         return None, None, None, len(slots), avail_times
 
     except Exception as e:
