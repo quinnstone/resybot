@@ -360,6 +360,7 @@ def main():
         consecutive_rate_limits = 0
         last_gc = time.time()
         last_log = 0
+        first_cycle = True
 
         while running:
             attempts += 2  # 2 requests per cycle
@@ -383,6 +384,28 @@ def main():
             slot, config_id, matched, slot_count, avail_times = find_slot_parallel(
                 executor, api, VENUE_ID, TARGET_DATE, PRIORITY_TIMES, PARTY_SIZE
             )
+
+            # Debug: log raw slot data on first successful cycle
+            if first_cycle and slot_count > 0:
+                first_cycle = False
+                try:
+                    debug_slots = api.find_slots(VENUE_ID, TARGET_DATE, PARTY_SIZE)
+                    if debug_slots:
+                        print(f"    [DEBUG] First slot keys: {list(debug_slots[0].keys())}")
+                        raw_date = debug_slots[0].get("date", {})
+                        print(f"    [DEBUG] date field: {raw_date}")
+                        raw_config = debug_slots[0].get("config", {})
+                        print(f"    [DEBUG] config.type: {raw_config.get('type', 'N/A')}")
+                        # Show all available times
+                        all_times = []
+                        for s in debug_slots:
+                            start_str = s.get("date", {}).get("start", "")
+                            all_times.append(start_str)
+                        print(f"    [DEBUG] All slot times: {all_times[:10]}")
+                        print(f"    [DEBUG] Priority times: {PRIORITY_TIMES[:5]}...")
+                except Exception as e:
+                    print(f"    [DEBUG] Error: {e}")
+                sys.stdout.flush()
 
             # Handle rate limiting
             if matched == "RATE_LIMITED":
