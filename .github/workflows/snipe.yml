@@ -51,9 +51,6 @@ jobs:
     env:
       RESY_EMAIL: ${{ secrets.RESY_EMAIL }}
       RESY_PASSWORD: ${{ secrets.RESY_PASSWORD }}
-      NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
-      SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
-      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       TZ: ${{ inputs.timezone }}
 
     steps:
