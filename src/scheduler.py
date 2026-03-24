@@ -64,7 +64,7 @@ class Scheduler:
 
         Returns:
             (snipe_date, snipe_time) - date as YYYY-MM-DD, time as HH:MM:SS
-            Snipe time is 10 seconds before drop to catch the exact moment
+            Snipe time is 2 minutes before drop for safety buffer
         """
         # Parse target date
         target = datetime.strptime(target_date, "%Y-%m-%d")
@@ -72,12 +72,13 @@ class Scheduler:
         # Calculate snipe date (target - days_advance)
         snipe_date = target - timedelta(days=days_advance)
 
-        # Parse drop time and subtract 10 seconds
+        # Parse drop time and subtract 2 minutes for safety buffer
+        # (launchd only has minute precision, and we want time for setup)
         drop_hour, drop_min = map(int, drop_time.split(':'))
         snipe_time = datetime(
             snipe_date.year, snipe_date.month, snipe_date.day,
             drop_hour, drop_min, 0
-        ) - timedelta(seconds=10)
+        ) - timedelta(minutes=2)
 
         # Handle day boundary (if drop is at 00:00:00, snipe would be previous day)
         snipe_date_str = snipe_time.strftime("%Y-%m-%d")

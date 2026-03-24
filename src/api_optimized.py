@@ -27,17 +27,19 @@ class ResyAPI:
     def __init__(self):
         self.config = Config
         self.auth_token = None
+        self._cached_headers = None
         self._setup_session()
 
     def _setup_session(self):
         """Configure session with connection pooling and retry logic"""
         self.session = requests.Session()
 
-        # Configure retry strategy for transient errors
+        # Retry only on connection errors, NOT on 5xx (we handle those ourselves
+        # to keep polling fast - urllib3 retries add hidden backoff delays)
         retry_strategy = Retry(
-            total=2,
-            backoff_factor=0.3,
-            status_forcelist=[500, 502, 503, 504],
+            total=1,
+            backoff_factor=0.1,
+            status_forcelist=[502, 503],
             allowed_methods=["GET", "POST"]
         )
 
@@ -58,6 +60,7 @@ class ResyAPI:
             self.session.close()
         except:
             pass
+        self._cached_headers = None
         self._setup_session()
         gc.collect()
 
@@ -70,17 +73,19 @@ class ResyAPI:
 
     @property
     def headers(self):
-        """Build headers for API requests"""
-        h = {
-            "Authorization": f'ResyAPI api_key="{self.API_KEY}"',
-            "Origin": "https://resy.com",
-            "Referer": "https://resy.com/",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Connection": "keep-alive",
-        }
-        if self.auth_token:
-            h["X-Resy-Auth-Token"] = self.auth_token
-        return h
+        """Build headers for API requests (cached, rebuilt only when token changes)"""
+        if self._cached_headers is None or self._cached_headers.get("X-Resy-Auth-Token") != self.auth_token:
+            h = {
+                "Authorization": f'ResyAPI api_key="{self.API_KEY}"',
+                "Origin": "https://resy.com",
+                "Referer": "https://resy.com/",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Connection": "keep-alive",
+            }
+            if self.auth_token:
+                h["X-Resy-Auth-Token"] = self.auth_token
+            self._cached_headers = h
+        return self._cached_headers
 
     def login(self):
         """Authenticate with Resy"""
@@ -108,6 +113,49 @@ class ResyAPI:
 
         except requests.RequestException as e:
             raise ResyAPIError(f"Network error: {e}")
+
+    def resolve_venue(self, url):
+        """Resolve a Resy venue URL to (venue_id, venue_name).
+
+        Accepts formats:
+          https://resy.com/cities/ny/torrisi
+          resy.com/cities/ny/torrisi
+          ny/torrisi
+        """
+        # Extract city and slug from URL
+        url = url.rstrip('/')
+        if '/cities/' in url:
+            parts = url.split('/cities/')[1].split('/')
+        else:
+            parts = url.split('/')
+
+        if len(parts) < 2:
+            raise ResyAPIError(f"Can't parse venue URL: {url} (expected city/slug)")
+
+        city = parts[0]
+        slug = parts[1].split('?')[0]  # strip query params
+
+        try:
+            resp = self.session.get(
+                f"{self.BASE_URL}/3/venue",
+                headers=self.headers,
+                params={"url_slug": slug, "location": city},
+                timeout=8
+            )
+            if resp.status_code != 200:
+                raise ResyAPIError(f"Venue lookup failed: {resp.status_code}")
+
+            data = resp.json()
+            venue_id = data.get("id", {}).get("resy")
+            venue_name = data.get("name", slug.title())
+
+            if not venue_id:
+                raise ResyAPIError(f"No venue ID found for {city}/{slug}")
+
+            return venue_id, venue_name
+
+        except requests.RequestException as e:
+            raise ResyAPIError(f"Network error resolving venue: {e}")
 
     def is_authenticated(self):
         return self.auth_token is not None
@@ -149,7 +197,7 @@ class ResyAPI:
         return methods[0]["id"] if methods else None
 
     def find_slots(self, venue_id, date, party_size):
-        """Find available slots - optimized for speed"""
+        """Find available slots - optimized for speed and memory"""
         params = {
             "lat": 0,
             "long": 0,
@@ -166,14 +214,25 @@ class ResyAPI:
                 timeout=5  # Short timeout for fast polling
             )
 
-            if resp.status_code == 429:
+            status = resp.status_code
+            if status == 429:
+                resp.close()
                 raise ResyAPIError("Rate limited (429)")
-            elif resp.status_code != 200:
-                raise ResyAPIError(f"Find failed: {resp.status_code}")
+            elif status != 200:
+                body = ""
+                try:
+                    body = resp.text[:200]
+                except Exception:
+                    pass
+                resp.close()
+                raise ResyAPIError(f"Find failed: {status} | {body}")
 
             result = resp.json()
+            resp.close()
             venues = result.get("results", {}).get("venues", [])
-            return venues[0].get("slots", []) if venues else []
+            slots = venues[0].get("slots", []) if venues else []
+            del result
+            return slots
 
         except requests.RequestException as e:
             raise ResyAPIError(f"Network error: {e}")
