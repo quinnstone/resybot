@@ -71,18 +71,18 @@ def main():
     print(f"Party:      {args.party_size}")
     print()
 
-    # Check if drop time is within GitHub Actions 6-hour limit
+    # Check timing
     drop_dt = datetime.strptime(f"{args.drop_date} {args.drop_time}", "%Y-%m-%d %H:%M")
     wait_seconds = (drop_dt - datetime.now()).total_seconds()
     if wait_seconds > 5.5 * 3600:
         print(f"WARNING: Drop is {wait_seconds/3600:.1f} hours away.")
-        print(f"GitHub Actions has a 6-hour max runtime.")
-        print(f"Trigger this workflow closer to {args.drop_date} {args.drop_time}.")
+        print(f"GitHub Actions has a 6-hour max. This run will likely time out.")
+        print(f"The scheduler will auto-trigger closer to drop time.")
         sys.exit(1)
     elif wait_seconds > 0:
-        print(f"Drop in {wait_seconds/60:.0f} minutes — within GitHub Actions limit.")
+        print(f"Drop in {wait_seconds/60:.0f} minutes.")
     else:
-        print(f"Drop time already passed — sniping immediately.")
+        print(f"Drop time passed — sniping immediately.")
     print()
 
     # Run sniper_optimized.py — it resolves the venue ID from the URL itself

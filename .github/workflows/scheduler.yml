@@ -1,0 +1,28 @@
+name: Snipe Scheduler
+
+on:
+  schedule:
+    # Run every 30 minutes to check for upcoming drops
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Allow manual trigger for testing
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check for due snipes
+        run: python check_schedule.py
