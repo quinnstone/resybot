@@ -12,6 +12,7 @@ Usage:
 import sys
 import re
 import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -52,11 +53,16 @@ def main():
     # Generate priority times
     priority_times = generate_priority_times(time_start, time_end, venue.slot_interval)
 
-    print(f"Venue:    {venue.name} (ID: {venue.id})")
-    print(f"Date:     {args.date}")
-    print(f"Times:    {' > '.join(priority_times[:5])}")
-    print(f"Drop:     {venue.drop_time}")
-    print(f"Party:    {args.party_size}")
+    # Calculate drop date (target_date - days_advance)
+    target_dt = datetime.strptime(args.date, "%Y-%m-%d")
+    drop_date = (target_dt - timedelta(days=venue.days_advance)).strftime("%Y-%m-%d")
+
+    print(f"Venue:      {venue.name} (ID: {venue.id})")
+    print(f"Date:       {args.date}")
+    print(f"Times:      {' > '.join(priority_times[:5])}")
+    print(f"Drop Date:  {drop_date}")
+    print(f"Drop Time:  {venue.drop_time}")
+    print(f"Party:      {args.party_size}")
     print()
 
     # Run sniper_optimized.py
@@ -67,6 +73,7 @@ def main():
         '--venue-name', venue.name,
         '--target-date', args.date,
         '--drop-time', venue.drop_time,
+        '--drop-date', drop_date,
         '--priority-times', ','.join(priority_times),
         '--party-size', str(args.party_size),
         '--timeout', str(args.timeout),

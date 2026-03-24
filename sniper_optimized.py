@@ -73,6 +73,8 @@ def parse_args():
     parser.add_argument('--party-size', type=int, default=2)
     parser.add_argument('--drop-time', required=True,
                         help='When reservations drop (HH:MM)')
+    parser.add_argument('--drop-date', default=None,
+                        help='Date reservations drop (YYYY-MM-DD). Defaults to today.')
     parser.add_argument('--timeout', type=int, default=300)
     return parser.parse_args()
 
@@ -233,9 +235,13 @@ def main():
     DROP_TIME = args.drop_time
     TIMEOUT = args.timeout
 
-    # Parse drop time into today's datetime
+    # Parse drop datetime
     drop_hour, drop_minute = map(int, DROP_TIME.split(':'))
-    drop_dt = datetime.now().replace(
+    if args.drop_date:
+        drop_base = datetime.strptime(args.drop_date, "%Y-%m-%d")
+    else:
+        drop_base = datetime.now()
+    drop_dt = drop_base.replace(
         hour=drop_hour, minute=drop_minute, second=0, microsecond=0
     )
     login_dt = drop_dt - timedelta(seconds=90)
