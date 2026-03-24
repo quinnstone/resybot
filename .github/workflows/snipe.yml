@@ -1,6 +1,7 @@
 name: Resy Snipe
 
 on:
+  # Manual trigger — fill in the fields and run immediately
   workflow_dispatch:
     inputs:
       venue_url:
@@ -34,6 +35,13 @@ on:
         default: 'America/New_York'
         type: string
 
+  # Auto-scheduler — checks snipes.json every 30 min for upcoming drops
+  schedule:
+    - cron: '*/30 * * * *'
+
+permissions:
+  contents: write
+
 jobs:
   snipe:
     runs-on: ubuntu-latest
@@ -42,7 +50,6 @@ jobs:
     env:
       RESY_EMAIL: ${{ secrets.RESY_EMAIL }}
       RESY_PASSWORD: ${{ secrets.RESY_PASSWORD }}
-      TZ: ${{ inputs.timezone }}
 
     steps:
       - uses: actions/checkout@v4
@@ -55,8 +62,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run sniper
+      # Manual trigger — run the sniper directly with provided inputs
+      - name: Run sniper (manual)
+        if: github.event_name == 'workflow_dispatch'
         env:
+          TZ: ${{ inputs.timezone }}
           INPUT_URL: ${{ inputs.venue_url }}
           INPUT_DATE: ${{ inputs.reservation_date }}
           INPUT_TIME: ${{ inputs.time_window }}
@@ -71,3 +81,10 @@ jobs:
             --drop-date "$INPUT_DROP_DATE" \
             --drop-time "$INPUT_DROP_TIME" \
             --party-size "$INPUT_PARTY_SIZE"
+
+      # Scheduled trigger — check snipes.json for drops due within 35 min
+      - name: Check scheduled snipes
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python check_schedule.py
