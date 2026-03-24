@@ -2,22 +2,40 @@
 """
 GitHub Actions entry point for Resy Sniper.
 
-Takes a URL + date + time window and resolves everything automatically
-from venues.json, then runs the sniper.
+Takes explicit inputs for everything needed to snipe a reservation.
+No dependency on venues.json — venue ID is resolved from the URL via Resy API.
 
 Usage:
-  python run_snipe.py --url "https://resy.com/cities/new-york-ny/venues/lilia" \
-    --date 2026-04-01 --time "19:00-21:00" --party-size 2
+  python run_snipe.py \
+    --url "https://resy.com/cities/new-york-ny/venues/lilia" \
+    --date 2026-04-24 --time "19:00-21:00" \
+    --drop-date 2026-03-25 --drop-time "09:00" \
+    --party-size 2
 """
+import os
 import sys
 import re
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
 
-from src.venue_resolver import VenueResolver, VenueResolverError, generate_priority_times
+def generate_priority_times(start_time: str, end_time: str, interval: int = 15) -> list[str]:
+    """Generate list of times from start to end at given interval (default 15 min)."""
+    def to_minutes(t):
+        h, m = map(int, t.split(':'))
+        return h * 60 + m
+
+    def to_time(mins):
+        return f"{mins // 60:02d}:{mins % 60:02d}"
+
+    times = []
+    current = to_minutes(start_time)
+    end = to_minutes(end_time)
+    while current <= end:
+        times.append(to_time(current))
+        current += interval
+    return times
 
 
 def main():
@@ -26,9 +44,9 @@ def main():
     parser.add_argument('--url', required=True, help='Resy venue URL')
     parser.add_argument('--date', required=True, help='Reservation date (YYYY-MM-DD)')
     parser.add_argument('--time', required=True, help='Time window (HH:MM-HH:MM)')
+    parser.add_argument('--drop-date', required=True, help='Date reservations drop (YYYY-MM-DD)')
+    parser.add_argument('--drop-time', required=True, help='Time reservations drop (HH:MM)')
     parser.add_argument('--party-size', type=int, default=2)
-    parser.add_argument('--drop-date', default=None,
-                        help='Override drop date (YYYY-MM-DD). Auto-calculated if omitted.')
     parser.add_argument('--timeout', type=int, default=300)
     args = parser.parse_args()
 
@@ -39,46 +57,42 @@ def main():
         sys.exit(1)
     time_start, time_end = match.groups()
 
-    # Resolve venue from URL using venues.json
-    resolver = VenueResolver()
-    try:
-        venue = resolver.resolve(args.url, interactive=False, require_schedule_info=True)
-    except VenueResolverError:
-        # Venue not in database — try without schedule info (use defaults)
-        print(f"Warning: Venue not in database, using defaults (drop_time=now, 30-day advance)")
-        try:
-            venue = resolver.resolve(args.url, interactive=False, require_schedule_info=False)
-        except VenueResolverError as e:
-            print(f"Error resolving venue: {e}")
-            sys.exit(1)
+    # Generate priority times at 15-minute intervals
+    priority_times = generate_priority_times(time_start, time_end)
 
-    # Generate priority times
-    priority_times = generate_priority_times(time_start, time_end, venue.slot_interval)
-
-    # Calculate drop date (target_date - days_advance), or use override
-    if args.drop_date:
-        drop_date = args.drop_date
-    else:
-        target_dt = datetime.strptime(args.date, "%Y-%m-%d")
-        drop_date = (target_dt - timedelta(days=venue.days_advance)).strftime("%Y-%m-%d")
-
-    print(f"Venue:      {venue.name} (ID: {venue.id})")
+    print(f"URL:        {args.url}")
     print(f"Date:       {args.date}")
-    print(f"Times:      {' > '.join(priority_times[:5])}")
-    print(f"Drop Date:  {drop_date}")
-    print(f"Drop Time:  {venue.drop_time}")
+    print(f"Times:      {' > '.join(priority_times[:6])}", end="")
+    if len(priority_times) > 6:
+        print(f" (+{len(priority_times) - 6} more)")
+    else:
+        print()
+    print(f"Drop:       {args.drop_date} at {args.drop_time}")
     print(f"Party:      {args.party_size}")
     print()
 
-    # Run sniper_optimized.py
+    # Check if drop time is within GitHub Actions 6-hour limit
+    drop_dt = datetime.strptime(f"{args.drop_date} {args.drop_time}", "%Y-%m-%d %H:%M")
+    wait_seconds = (drop_dt - datetime.now()).total_seconds()
+    if wait_seconds > 5.5 * 3600:
+        print(f"WARNING: Drop is {wait_seconds/3600:.1f} hours away.")
+        print(f"GitHub Actions has a 6-hour max runtime.")
+        print(f"Trigger this workflow closer to {args.drop_date} {args.drop_time}.")
+        sys.exit(1)
+    elif wait_seconds > 0:
+        print(f"Drop in {wait_seconds/60:.0f} minutes — within GitHub Actions limit.")
+    else:
+        print(f"Drop time already passed — sniping immediately.")
+    print()
+
+    # Run sniper_optimized.py — it resolves the venue ID from the URL itself
     sniper = Path(__file__).parent / "sniper_optimized.py"
     cmd = [
         sys.executable, str(sniper),
-        '--venue-id', str(venue.id),
-        '--venue-name', venue.name,
+        '--venue-url', args.url,
         '--target-date', args.date,
-        '--drop-time', venue.drop_time,
-        '--drop-date', drop_date,
+        '--drop-time', args.drop_time,
+        '--drop-date', args.drop_date,
         '--priority-times', ','.join(priority_times),
         '--party-size', str(args.party_size),
         '--timeout', str(args.timeout),
