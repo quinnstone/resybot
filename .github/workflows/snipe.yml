@@ -4,43 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       venue_url:
-        description: 'Resy URL (e.g. https://resy.com/cities/ny/torrisi)'
-        required: false
-        type: string
-      venue_id:
-        description: 'Venue ID (use venue_url OR venue_id)'
-        required: false
-        type: string
-      venue_name:
-        description: 'Venue name (for notifications/logging)'
+        description: 'Resy URL (e.g. https://resy.com/cities/new-york-ny/venues/lilia)'
         required: true
         type: string
       target_date:
         description: 'Reservation date (YYYY-MM-DD)'
         required: true
         type: string
-      drop_time:
-        description: 'When reservations drop (HH:MM)'
-        required: true
-        type: string
-      priority_times:
-        description: 'Comma-separated priority times (e.g. 19:30,19:45,20:00)'
+      time_window:
+        description: 'Desired time window (HH:MM-HH:MM, e.g. 19:00-21:00)'
         required: true
         type: string
       party_size:
         description: 'Party size'
-        required: true
+        required: false
         default: '2'
-        type: string
-      timezone:
-        description: 'Restaurant timezone'
-        required: false
-        default: 'America/New_York'
-        type: string
-      timeout:
-        description: 'Sniper timeout in seconds'
-        required: false
-        default: '300'
         type: string
 
 jobs:
@@ -51,7 +29,6 @@ jobs:
     env:
       RESY_EMAIL: ${{ secrets.RESY_EMAIL }}
       RESY_PASSWORD: ${{ secrets.RESY_PASSWORD }}
-      TZ: ${{ inputs.timezone }}
 
     steps:
       - uses: actions/checkout@v4
@@ -66,28 +43,13 @@ jobs:
 
       - name: Run sniper
         env:
-          INPUT_VENUE_URL: ${{ inputs.venue_url }}
-          INPUT_VENUE_ID: ${{ inputs.venue_id }}
-          INPUT_VENUE_NAME: ${{ inputs.venue_name }}
-          INPUT_TARGET_DATE: ${{ inputs.target_date }}
-          INPUT_DROP_TIME: ${{ inputs.drop_time }}
-          INPUT_PRIORITY_TIMES: ${{ inputs.priority_times }}
+          INPUT_URL: ${{ inputs.venue_url }}
+          INPUT_DATE: ${{ inputs.target_date }}
+          INPUT_TIME: ${{ inputs.time_window }}
           INPUT_PARTY_SIZE: ${{ inputs.party_size }}
-          INPUT_TIMEOUT: ${{ inputs.timeout }}
         run: |
-          ARGS=""
-          if [ -n "$INPUT_VENUE_URL" ]; then
-            ARGS="--venue-url $INPUT_VENUE_URL"
-          elif [ -n "$INPUT_VENUE_ID" ]; then
-            ARGS="--venue-id $INPUT_VENUE_ID --venue-name $INPUT_VENUE_NAME"
-          else
-            echo "Error: Either venue_url or venue_id must be provided"
-            exit 1
-          fi
-
-          python sniper_optimized.py $ARGS \
-            --target-date "$INPUT_TARGET_DATE" \
-            --drop-time "$INPUT_DROP_TIME" \
-            --priority-times "$INPUT_PRIORITY_TIMES" \
-            --party-size "$INPUT_PARTY_SIZE" \
-            --timeout "$INPUT_TIMEOUT"
+          python run_snipe.py \
+            --url "$INPUT_URL" \
+            --date "$INPUT_DATE" \
+            --time "$INPUT_TIME" \
+            --party-size "$INPUT_PARTY_SIZE"
