@@ -14,7 +14,7 @@ Usage:
 """
 import sys
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # Add project root to path
@@ -76,7 +76,7 @@ def validate_time_window(time_str: str) -> tuple[str, str]:
     return start, end
 
 
-def cmd_schedule(url: str, date: str, time_window: str, party_size: int):
+def cmd_schedule(url: str, date: str, time_window: str, party_size: int, use_github: bool = False):
     """Schedule a new reservation snipe"""
     print_header("SCHEDULING RESY SNIPE")
 
@@ -162,22 +162,41 @@ def cmd_schedule(url: str, date: str, time_window: str, party_size: int):
 
     print(f"\n  Job created with ID: {job_id}")
 
-    # Schedule launchd job
-    print(f"  Scheduling launchd job...")
-    try:
-        scheduler.schedule_job(job)
-        print(f"  Cron job scheduled!")
-    except SchedulerError as e:
-        print(f"  Warning: Could not create launchd job: {e}")
-        print(f"  You can run manually: python resy.py run {job_id}")
+    if use_github:
+        # Schedule via GitHub Actions
+        print(f"  Scheduling via GitHub Actions...")
+        try:
+            _schedule_github_workflow(job, venue, priority_times)
+            print(f"  GitHub Actions workflow scheduled!")
+        except Exception as e:
+            print(f"  Warning: Could not schedule GitHub Actions: {e}")
+            print(f"  You can trigger manually: python resy.py trigger {job_id}")
 
-    print_header("SNIPE SCHEDULED")
-    print(f"\n  Job ID:     {job_id}")
-    print(f"  Venue:      {venue.name}")
-    print(f"  Target:     {date} ({time_start}-{time_end})")
-    print(f"  Snipe:      {snipe_display}")
-    print(f"\n  Your machine must be running at the snipe time!")
-    print()
+        print_header("SNIPE SCHEDULED (GITHUB ACTIONS)")
+        print(f"\n  Job ID:     {job_id}")
+        print(f"  Venue:      {venue.name}")
+        print(f"  Target:     {date} ({time_start}-{time_end})")
+        print(f"  Snipe:      {snipe_display}")
+        print(f"\n  Runs on GitHub Actions - no laptop needed!")
+        print(f"  Monitor at: https://github.com/<owner>/<repo>/actions")
+        print()
+    else:
+        # Schedule launchd job
+        print(f"  Scheduling launchd job...")
+        try:
+            scheduler.schedule_job(job)
+            print(f"  Cron job scheduled!")
+        except SchedulerError as e:
+            print(f"  Warning: Could not create launchd job: {e}")
+            print(f"  You can run manually: python resy.py run {job_id}")
+
+        print_header("SNIPE SCHEDULED")
+        print(f"\n  Job ID:     {job_id}")
+        print(f"  Venue:      {venue.name}")
+        print(f"  Target:     {date} ({time_start}-{time_end})")
+        print(f"  Snipe:      {snipe_display}")
+        print(f"\n  Your machine must be running at the snipe time!")
+        print()
 
 
 def cmd_list():
@@ -289,6 +308,143 @@ def cmd_venues():
     print()
 
 
+def _schedule_github_workflow(job: Job, venue, priority_times: list[str]):
+    """Schedule a GitHub Actions workflow trigger using the system `at` command or launchd."""
+    import subprocess
+
+    # Build the gh workflow run command
+    gh_args = _build_gh_args(job, venue, priority_times)
+    gh_cmd = f"gh workflow run snipe.yml {gh_args}"
+
+    # Parse snipe datetime
+    snipe_dt = datetime.strptime(f"{job.snipe_date} {job.snipe_time}", "%Y-%m-%d %H:%M:%S")
+
+    # Trigger 5 min before drop to account for GitHub Actions VM startup
+    trigger_dt = snipe_dt - timedelta(minutes=3)
+
+    # If trigger time is in the past or within 1 minute, trigger immediately
+    if (trigger_dt - datetime.now()).total_seconds() < 60:
+        print(f"  Trigger time is now/past - triggering immediately...")
+        result = subprocess.run(gh_cmd, shell=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"gh workflow run failed: {result.stderr}")
+        print(f"  Workflow triggered!")
+        return
+
+    # Use launchd to schedule the gh trigger (lightweight - runs for <1 second)
+    import plistlib
+
+    label = f"com.resy.snipe.gh.{job.id}"
+    plist_path = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
+    log_path = Path(__file__).parent / "logs" / f"gh_trigger_{job.id}.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Split command for plist ProgramArguments
+    plist_content = {
+        'Label': label,
+        'ProgramArguments': ['/bin/bash', '-c', gh_cmd],
+        'WorkingDirectory': str(Path(__file__).parent),
+        'StartCalendarInterval': {
+            'Month': trigger_dt.month,
+            'Day': trigger_dt.day,
+            'Hour': trigger_dt.hour,
+            'Minute': trigger_dt.minute,
+        },
+        'StandardOutPath': str(log_path),
+        'StandardErrorPath': str(log_path),
+        'EnvironmentVariables': {
+            'PATH': '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin',
+            'HOME': str(Path.home()),
+        },
+    }
+
+    # Remove existing if present
+    subprocess.run(['launchctl', 'remove', label], capture_output=True)
+
+    with open(plist_path, 'wb') as f:
+        plistlib.dump(plist_content, f)
+
+    result = subprocess.run(['launchctl', 'load', str(plist_path)], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to load launchd trigger: {result.stderr}")
+
+    print(f"  Trigger scheduled for {trigger_dt.strftime('%b %d at %I:%M %p')}")
+    print(f"  (Your laptop only needs to wake for 1 second to fire the trigger)")
+
+
+def _build_gh_args(job: Job, venue, priority_times: list[str]) -> str:
+    """Build the -f arguments for gh workflow run."""
+    drop_time = venue.drop_time if venue else _recover_drop_time(job)
+    args = [
+        f'-f venue_id={job.venue_id}',
+        f'-f venue_name="{job.venue_name}"',
+        f'-f target_date={job.target_date}',
+        f'-f drop_time={drop_time}',
+        f'-f priority_times="{",".join(priority_times)}"',
+        f'-f party_size={job.party_size}',
+        f'-f timezone={job.timezone}',
+    ]
+    return ' '.join(args)
+
+
+def _recover_drop_time(job: Job) -> str:
+    """Recover drop time from snipe_time (snipe_time = drop_time - 2 min)."""
+    snipe_h, snipe_m = map(int, job.snipe_time.split(':')[:2])
+    drop_dt = datetime(2000, 1, 1, snipe_h, snipe_m) + timedelta(minutes=2)
+    return drop_dt.strftime("%H:%M")
+
+
+def cmd_trigger(job_id: int):
+    """Trigger a GitHub Actions workflow for a job immediately"""
+    import subprocess
+
+    store = JobStore()
+    job = store.get_job(job_id)
+
+    if not job:
+        print(f"Error: Job {job_id} not found")
+        sys.exit(1)
+
+    # Reconstruct drop time from venue data or use stored snipe_time + 2 min
+    drop_hour, drop_min = map(int, job.snipe_time.split(':')[:2])
+    drop_dt = datetime(2000, 1, 1, drop_hour, drop_min) + timedelta(minutes=2)
+    drop_time = drop_dt.strftime("%H:%M")
+
+    priority_times = job.priority_times
+
+    print_header("TRIGGER GITHUB ACTIONS SNIPE")
+    print(f"\n  Job ID:  {job_id}")
+    print(f"  Venue:   {job.venue_name} ({job.venue_id})")
+    print(f"  Date:    {job.target_date}")
+    print(f"  Times:   {priority_times[0]} - {priority_times[-1]}")
+    print(f"  Drop:    {drop_time}")
+
+    gh_cmd = (
+        f'gh workflow run snipe.yml '
+        f'-f venue_id={job.venue_id} '
+        f'-f venue_name="{job.venue_name}" '
+        f'-f target_date={job.target_date} '
+        f'-f drop_time={drop_time} '
+        f'-f priority_times="{",".join(priority_times)}" '
+        f'-f party_size={job.party_size} '
+        f'-f timezone={job.timezone}'
+    )
+
+    print(f"\n  Running: {gh_cmd}")
+    result = subprocess.run(gh_cmd, shell=True, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        print(f"\n  Error: {result.stderr}")
+        print(f"\n  Make sure you have the GitHub CLI installed and authenticated:")
+        print(f"    brew install gh")
+        print(f"    gh auth login")
+        sys.exit(1)
+
+    print(f"\n  Workflow triggered! Check status at:")
+    print(f"    gh run list --workflow=snipe.yml")
+    print()
+
+
 def cmd_test_snipe(job_id: int):
     """Test a snipe job immediately (for debugging)"""
     import subprocess
@@ -326,7 +482,8 @@ def print_usage():
 Resy Sniper CLI
 
 Usage:
-  python resy.py schedule <url> --date <YYYY-MM-DD> --time <HH:MM-HH:MM> [--party-size N]
+  python resy.py schedule <url> --date <YYYY-MM-DD> --time <HH:MM-HH:MM> [--party-size N] [--github]
+  python resy.py trigger <job_id>
   python resy.py list
   python resy.py cancel <job_id>
   python resy.py run <job_id>
@@ -334,7 +491,8 @@ Usage:
   python resy.py venues
 
 Commands:
-  schedule    Schedule a new reservation snipe
+  schedule    Schedule a new reservation snipe (--github to run on GitHub Actions)
+  trigger     Trigger a GitHub Actions workflow for an existing job immediately
   list        List all scheduled snipes
   cancel      Cancel a scheduled snipe
   run         Run a snipe job (used by launchd)
@@ -345,6 +503,10 @@ Examples:
   python resy.py schedule "https://resy.com/cities/new-york-ny/venues/carbone" \\
       --date 2026-02-14 --time "19:00-21:00" --party-size 2
 
+  python resy.py schedule "https://resy.com/cities/new-york-ny/venues/carbone" \\
+      --date 2026-02-14 --time "19:00-21:00" --party-size 2 --github
+
+  python resy.py trigger 1
   python resy.py list
   python resy.py cancel 1
 """)
@@ -368,6 +530,7 @@ def main():
         date = None
         time_window = None
         party_size = 2
+        use_github = False
 
         i = 3
         while i < len(sys.argv):
@@ -381,6 +544,9 @@ def main():
             elif arg in ("--party-size", "-p"):
                 party_size = int(sys.argv[i + 1])
                 i += 2
+            elif arg == "--github":
+                use_github = True
+                i += 1
             else:
                 print(f"Unknown argument: {arg}")
                 sys.exit(1)
@@ -392,7 +558,7 @@ def main():
             print("Error: --time required")
             sys.exit(1)
 
-        cmd_schedule(url, date, time_window, party_size)
+        cmd_schedule(url, date, time_window, party_size, use_github=use_github)
 
     elif command == "list":
         cmd_list()
@@ -420,6 +586,14 @@ def main():
             sys.exit(1)
         job_id = int(sys.argv[2])
         cmd_test_snipe(job_id)
+
+    elif command == "trigger":
+        if len(sys.argv) < 3:
+            print("Error: Job ID required")
+            print("Usage: python resy.py trigger <job_id>")
+            sys.exit(1)
+        job_id = int(sys.argv[2])
+        cmd_trigger(job_id)
 
     elif command == "venues":
         cmd_venues()
