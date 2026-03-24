@@ -123,17 +123,21 @@ class ResyAPI:
           ny/torrisi
         """
         # Extract city and slug from URL
-        url = url.rstrip('/')
+        url = url.split('?')[0].rstrip('/')  # strip query params first
         if '/cities/' in url:
             parts = url.split('/cities/')[1].split('/')
         else:
             parts = url.split('/')
 
+        # Skip "venues" segment if present: cities/{city}/venues/{slug}
+        if 'venues' in parts:
+            parts.remove('venues')
+
         if len(parts) < 2:
             raise ResyAPIError(f"Can't parse venue URL: {url} (expected city/slug)")
 
         city = parts[0]
-        slug = parts[1].split('?')[0]  # strip query params
+        slug = parts[1]
 
         try:
             resp = self.session.get(
