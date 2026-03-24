@@ -6,7 +6,7 @@
     "drop_time": "07:00",
     "days_advance": 29,
     "timezone": "America/New_York",
-    "slot_interval": 30
+    "slot_interval": 15
   },
   "carbone": {
     "id": 6194,
@@ -15,7 +15,7 @@
     "drop_time": "10:00",
     "days_advance": 29,
     "timezone": "America/New_York",
-    "slot_interval": 30
+    "slot_interval": 15
   },
   "lilia": {
     "id": 418,
@@ -24,7 +24,7 @@
     "drop_time": "09:00",
     "days_advance": 30,
     "timezone": "America/New_York",
-    "slot_interval": 30
+    "slot_interval": 15
   },
   "don-angie": {
     "id": 25973,
@@ -33,7 +33,7 @@
     "drop_time": "09:00",
     "days_advance": 30,
     "timezone": "America/New_York",
-    "slot_interval": 30
+    "slot_interval": 15
   },
   "i-sodi": {
     "id": 443,
@@ -42,7 +42,7 @@
     "drop_time": "12:00",
     "days_advance": 28,
     "timezone": "America/New_York",
-    "slot_interval": 30
+    "slot_interval": 15
   },
   "golden-diner": {
     "id": 9520,
@@ -51,7 +51,7 @@
     "drop_time": "09:00",
     "days_advance": 30,
     "timezone": "America/New_York",
-    "slot_interval": 30
+    "slot_interval": 15
   },
   "4-charles-prime-rib": {
     "id": 834,
@@ -60,7 +60,7 @@
     "drop_time": "09:00",
     "days_advance": 21,
     "timezone": "America/New_York",
-    "slot_interval": 30
+    "slot_interval": 15
   },
   "torrisi": {
     "id": 64593,
@@ -69,7 +69,7 @@
     "drop_time": "10:00",
     "days_advance": 30,
     "timezone": "America/New_York",
-    "slot_interval": 30
+    "slot_interval": 15
   },
   "semma": {
     "id": 1263,
