@@ -12,6 +12,7 @@ Usage:
     --drop-date 2026-03-25 --drop-time "09:00" \
     --party-size 2
 """
+import json
 import os
 import sys
 import re
@@ -75,10 +76,10 @@ def main():
     drop_dt = datetime.strptime(f"{args.drop_date} {args.drop_time}", "%Y-%m-%d %H:%M")
     wait_seconds = (drop_dt - datetime.now()).total_seconds()
     if wait_seconds > 5.5 * 3600:
-        print(f"WARNING: Drop is {wait_seconds/3600:.1f} hours away.")
-        print(f"GitHub Actions has a 6-hour max. This run will likely time out.")
-        print(f"The scheduler will auto-trigger closer to drop time.")
-        sys.exit(1)
+        print(f"Drop is {wait_seconds/3600:.1f} hours away — scheduling for later.")
+        _save_to_schedule(args)
+        print(f"Saved to snipes.json. The scheduler will auto-trigger ~30 min before drop.")
+        sys.exit(0)
     elif wait_seconds > 0:
         print(f"Drop in {wait_seconds/60:.0f} minutes.")
     else:
@@ -104,6 +105,45 @@ def main():
 
     result = subprocess.run(cmd)
     sys.exit(result.returncode)
+
+
+def _save_to_schedule(args):
+    """Save a snipe to snipes.json for the cron scheduler to pick up later."""
+    snipes_file = Path(__file__).parent / "snipes.json"
+
+    if snipes_file.exists():
+        snipes = json.loads(snipes_file.read_text())
+    else:
+        snipes = []
+
+    # Check for duplicate
+    for s in snipes:
+        if (s.get("venue_url") == args.url
+                and s.get("drop_date") == args.drop_date
+                and s.get("reservation_date") == args.date
+                and s.get("status") == "pending"):
+            print(f"Already scheduled — skipping duplicate.")
+            return
+
+    snipes.append({
+        "venue_url": args.url,
+        "reservation_date": args.date,
+        "time_window": args.time,
+        "drop_date": args.drop_date,
+        "drop_time": args.drop_time,
+        "party_size": args.party_size,
+        "timezone": os.environ.get("TZ", "America/New_York"),
+        "status": "pending",
+    })
+
+    snipes_file.write_text(json.dumps(snipes, indent=2) + "\n")
+
+    # Commit and push so the cron picks it up
+    subprocess.run(["git", "config", "user.name", "Resy Scheduler"], capture_output=True)
+    subprocess.run(["git", "config", "user.email", "scheduler@resy-sniper"], capture_output=True)
+    subprocess.run(["git", "add", str(snipes_file)], capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Schedule snipe [skip ci]"], capture_output=True)
+    subprocess.run(["git", "push"], capture_output=True)
 
 
 if __name__ == "__main__":
