@@ -8,5 +8,15 @@
     "party_size": 2,
     "timezone": "America/New_York",
     "status": "pending"
+  },
+  {
+    "venue_url": "https://resy.com/cities/new-york-ny/venues/the-four-horsemen",
+    "reservation_date": "2026-04-23",
+    "time_window": "18:00-21:00",
+    "drop_date": "2026-03-25",
+    "drop_time": "07:00",
+    "party_size": 2,
+    "timezone": "America/New_York",
+    "status": "pending"
   }
 ]
