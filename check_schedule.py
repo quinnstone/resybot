@@ -107,8 +107,9 @@ def main():
             snipe["status"] = "missed"
             continue
 
-        # Trigger if drop is within next 35 min (30-min cron interval + 5-min jitter)
-        if minutes_until_drop <= 35:
+        # Trigger if drop is within next 65 min (covers two 30-min cron cycles + jitter)
+        # The sniper waits internally for the exact drop moment
+        if minutes_until_drop <= 65:
             print(f"  -> DROP SOON! Will run sniper.")
             due_snipe = snipe
             break
