@@ -9,5 +9,15 @@
     "timezone": "America/New_York",
     "status": "success",
     "triggered_at": "2026-03-26 10:55 UTC"
+  },
+  {
+    "venue_url": "https://resy.com/cities/new-york-ny/venues/torrisi?seats=2&date=2026-03-26",
+    "reservation_date": "2026-04-26",
+    "time_window": "12:00-14:30",
+    "drop_date": "2026-03-27",
+    "drop_time": "07:00",
+    "party_size": 2,
+    "timezone": "America/New_York",
+    "status": "pending"
   }
 ]
