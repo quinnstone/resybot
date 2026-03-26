@@ -7,6 +7,7 @@
     "drop_time": "07:00",
     "party_size": 2,
     "timezone": "America/New_York",
-    "status": "pending"
+    "status": "triggered",
+    "triggered_at": "2026-03-26 10:55 UTC"
   }
 ]
