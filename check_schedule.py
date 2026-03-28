@@ -2,8 +2,9 @@
 """
 Scheduled snipe checker for GitHub Actions.
 
-Reads snipes.json, finds any snipes dropping within the next 35 minutes,
-and runs the sniper directly. Marks triggered snipes so they don't repeat.
+Reads snipes.json, finds any snipes dropping within the next 65 minutes,
+and dispatches a workflow_dispatch run with the snipe parameters.
+The cron job itself always completes in seconds.
 
 Runs on a 30-minute cron as part of snipe.yml.
 """
@@ -17,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 
 SNIPES_FILE = Path(__file__).parent / "snipes.json"
+WORKFLOW_FILE = "snipe.yml"
 
 
 def load_snipes() -> list[dict]:
@@ -46,28 +48,29 @@ def commit_update():
     subprocess.run(["git", "push"], capture_output=True)
 
 
-def run_snipe(snipe: dict) -> int:
-    """Run the sniper directly for a due snipe. Returns exit code."""
-    tz = snipe.get("timezone", "America/New_York")
-    env = os.environ.copy()
-    env["TZ"] = tz
+def dispatch_snipe(snipe: dict) -> bool:
+    """Trigger a workflow_dispatch run for this snipe. Returns True on success."""
+    result = subprocess.run(
+        [
+            "gh", "workflow", "run", WORKFLOW_FILE,
+            "-f", f"venue_url={snipe['venue_url']}",
+            "-f", f"reservation_date={snipe['reservation_date']}",
+            "-f", f"time_window={snipe['time_window']}",
+            "-f", f"drop_date={snipe['drop_date']}",
+            "-f", f"drop_time={snipe['drop_time']}",
+            "-f", f"party_size={snipe.get('party_size', 2)}",
+            "-f", f"timezone={snipe.get('timezone', 'America/New_York')}",
+        ],
+        capture_output=True,
+        text=True,
+    )
 
-    cmd = [
-        sys.executable, "run_snipe.py",
-        "--url", snipe["venue_url"],
-        "--date", snipe["reservation_date"],
-        "--time", snipe["time_window"],
-        "--drop-date", snipe["drop_date"],
-        "--drop-time", snipe["drop_time"],
-        "--party-size", str(snipe.get("party_size", 2)),
-    ]
-
-    print(f"Running: {' '.join(cmd)}")
-    print("=" * 50)
-    sys.stdout.flush()
-
-    result = subprocess.run(cmd, env=env)
-    return result.returncode
+    if result.returncode == 0:
+        print(f"  -> Dispatched workflow_dispatch successfully")
+        return True
+    else:
+        print(f"  -> Failed to dispatch: {result.stderr.strip()}")
+        return False
 
 
 def main():
@@ -108,9 +111,8 @@ def main():
             continue
 
         # Trigger if drop is within next 65 min (covers two 30-min cron cycles + jitter)
-        # The sniper waits internally for the exact drop moment
         if minutes_until_drop <= 65:
-            print(f"  -> DROP SOON! Will run sniper.")
+            print(f"  -> DROP SOON! Dispatching sniper.")
             due_snipe = snipe
             break
         else:
@@ -119,27 +121,14 @@ def main():
     print()
 
     if due_snipe:
-        due_snipe["status"] = "triggered"
-        due_snipe["triggered_at"] = now_utc.strftime("%Y-%m-%d %H:%M UTC")
-        save_snipes(snipes)
-        commit_update()
-
-        exit_code = run_snipe(due_snipe)
-
-        # Update status based on result
-        if exit_code == 0:
-            due_snipe["status"] = "success"
+        if dispatch_snipe(due_snipe):
+            due_snipe["status"] = "dispatched"
+            due_snipe["dispatched_at"] = now_utc.strftime("%Y-%m-%d %H:%M UTC")
         else:
-            due_snipe["status"] = "failed"
-        save_snipes(snipes)
-        commit_update()
+            due_snipe["status"] = "dispatch_failed"
 
-        sys.exit(exit_code)
-    else:
-        # Still save if we marked any as missed
-        save_snipes(snipes)
-        commit_update()
-        print("No snipes due right now.")
+    save_snipes(snipes)
+    commit_update()
 
 
 if __name__ == "__main__":
