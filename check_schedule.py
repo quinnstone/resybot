@@ -114,7 +114,7 @@ def main():
             due_snipe = snipe
             break
         else:
-            print(f"  -> Not yet (waiting for < 35 min window)")
+            print(f"  -> Not yet (waiting for < 65 min window)")
 
     print()
 

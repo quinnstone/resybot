@@ -45,7 +45,7 @@ permissions:
 jobs:
   snipe:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
 
     env:
       RESY_EMAIL: ${{ secrets.RESY_EMAIL }}
@@ -82,7 +82,7 @@ jobs:
             --drop-time "$INPUT_DROP_TIME" \
             --party-size "$INPUT_PARTY_SIZE"
 
-      # Scheduled trigger — check snipes.json for drops due within 35 min
+      # Scheduled trigger — check snipes.json for drops due within 65 min
       - name: Check scheduled snipes
         if: github.event_name == 'schedule'
         env:
