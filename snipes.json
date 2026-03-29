@@ -40,6 +40,6 @@
     "drop_time": "08:00",
     "party_size": 2,
     "timezone": "America/New_York",
-    "status": "pending"
+    "status": "dispatch_failed"
   }
 ]
